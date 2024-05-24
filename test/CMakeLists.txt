@@ -1,0 +1,20 @@
+# Copyright 2021 Lawrence Livermore National Security, LLC and other Privateer Project Developers.
+# See the top-level LICENSE file for details.
+#
+# SPDX-License-Identifier: MIT
+
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+)
+FetchContent_MakeAvailable(googletest)
+
+include(GoogleTest)
+
+function(add_gtest_executable test_name test_file)
+    add_executable(${test_name} ${test_file})
+    target_link_libraries(${test_name} PRIVATE GTest::gtest GTest::gtest_main)
+    gtest_discover_tests(${test_name})
+endfunction()
+
+add_gtest_executable(Privateer_test Privateer_test.cpp)

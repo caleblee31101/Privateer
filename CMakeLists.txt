@@ -57,6 +57,7 @@ else()
 endif()
 # --------------------------------------------------
 
+include(FetchContent)
 # ------------------ Boost -------------------------------------------------------------------------------
 set (Boost_NO_BOOST_CMAKE ON)
 
@@ -64,13 +65,22 @@ find_package(Boost) # COMPONENTS iostreams) # REQUIRED COMPONENTS system iostrea
 
 if (Boost_FOUND)
 
-    # Just a sanity check
-    if (NOT Boost_INCLUDE_DIRS)
-        message(FATAL_ERROR "Something is wrong: Boost_INCLUDE_DIRS is empty although Boost_FOUND is true.")
-    endif()
-    include_directories(${Boost_INCLUDE_DIRS})
+  # Just a sanity check
+  if (NOT Boost_INCLUDE_DIRS)
+    message(FATAL_ERROR "Something is wrong: Boost_INCLUDE_DIRS is empty although Boost_FOUND is true.")
+  endif()
+  include_directories(${Boost_INCLUDE_DIRS})
 else ()
-    message(FATAL_ERROR "Can not find Boost C++ Libraries")
+  message(STATUS "Download and setup Boost")
+  FetchContent_Declare(Boost
+    URL https://boostorg.jfrog.io/artifactory/main/release/1.82.0/source/boost_1_82_0.tar.bz2)
+  FetchContent_GetProperties(Boost)
+  if (NOT Boost_POPULATED)
+    FetchContent_Populate(Boost)
+  endif ()
+  set(BOOST_ROOT ${boost_SOURCE_DIR})
+  find_package(Boost 1.82)
+  include_directories(${Boost_INCLUDE_DIRS})
 endif ()
 
 # ---------------------------------------------------------------------------------------------------------- 
@@ -126,6 +136,9 @@ install(TARGETS  privateer-static # Removed "privateer" from here
 
 install(DIRECTORY include/privateer DESTINATION include)
 
-# find_package(MPI)
+find_package(MPI)
 
-# add_subdirectory(test_apps)
+include(CTest)
+enable_testing()
+add_subdirectory(test_apps)
+add_subdirectory(test)

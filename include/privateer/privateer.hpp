@@ -120,7 +120,7 @@ public:
     delete vmm;
   }
 
-  void* create(void* addr, const char* version_metadata_path, size_t region_size, bool allow_overwrite){
+  void* create(void* addr, const char* version_metadata_path, size_t region_size, bool allow_overwrite=true){
     std::string version_metadata_full_path = base_dir_path + "/" + version_metadata_path;
     vmm = new virtual_memory_manager(addr, region_size, m_block_size, version_metadata_full_path, blocks_dir_path, stash_dir_path, allow_overwrite);
     utility::sigsegv_handler_dispatcher::add_virtual_memory_manager((uint64_t) vmm->get_region_start_address(), region_size, vmm);
