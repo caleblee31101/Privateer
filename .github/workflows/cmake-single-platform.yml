@@ -1,0 +1,17 @@
+name: Privateer CI Test
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone repo
+        run: cd $GITHUB_WORKSPACE
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake -DBOOST_ROOT=. -DCMAKE_INSTALL_PREFIX=. ..
+          make install
+          make test
