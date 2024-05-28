@@ -17,4 +17,4 @@ function(add_gtest_executable test_name test_file)
     gtest_discover_tests(${test_name})
 endfunction()
 
-add_gtest_executable(Privateer_test Privateer_test.cpp)
+add_gtest_executable(PrivateerTest PrivateerTest.cpp)
