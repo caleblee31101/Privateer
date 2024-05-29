@@ -18,3 +18,8 @@ function(add_gtest_executable test_name test_file)
 endfunction()
 
 add_gtest_executable(PrivateerTest PrivateerTest.cpp)
+if (MPI_CXX_FOUND)
+  target_link_libraries(PrivateerTest PUBLIC MPI::MPI_CXX)
+else()
+  message(STATUS "Will skip the MPI tests")
+endif()
