@@ -6,27 +6,25 @@
 #include "../include/privateer/privateer.hpp"
 #include "../test_apps/utility/random.hpp"
 /*
-  Privateer(int action, const char *base_path);
-  Privateer(int action, const char *base_path, const char *stash_base_path);
-  ~Privateer();
-  void *create(void *addr, const char *version_metadata_path, size_t region_size, bool allow_overwrite = true);
-  void *open(void *addr, const char *version_metadata_path);
-  void *open_read_only(void *addr, const char *version_metadata_path);
-  void *open_immutable(void *addr, const char *version_metadata_path, const char *new_version_metadata_path);
-  void msync();
-  bool snapshot(const char *version_metadata_path);
-  size_t get_block_size();
-  void *data();
-  bool version_exists(const char *version_metadata_path);
-  size_t region_size();
-  static size_t version_capacity(std::string version_path);
-  static size_t version_block_size(std::string version_path);
+  TODO:
+  - fix incremental snapshot test
+  - check r/w only permissions, create/open
+  - test simple utility functions, return values of create/open
+  - parameterize necessary values (the ones with 10)
+  - stash based constructor
 */
 std::vector<size_t> get_random_offsets(size_t region_length, size_t num_updates){
   std::vector<size_t> random_values;
   std::generate_n(std::back_inserter(random_values), num_updates, utility::RandomNumberBetween(0,region_length - 1));
   return random_values;
 }
+
+std::vector<size_t> get_random_offsets(size_t region_start, size_t region_end, size_t num_updates){
+  std::vector<size_t> random_values;
+  std::generate_n(std::back_inserter(random_values), num_updates, utility::RandomNumberBetween(region_start,region_end - 1));
+  return random_values;
+}
+
 class PrivateerTest : public testing::Test {
   public:
     Privateer* priv = nullptr;
@@ -34,14 +32,9 @@ class PrivateerTest : public testing::Test {
     size_t num_ints;
     size_t* data;
 
-    static void SetUpTestSuite() {
-
-    }
-    static void TearDownTestSuite() {
-    }
     void SetUp() override {
       priv = new Privateer(Privateer::CREATE, "datastore");
-      size_bytes = 1024LLU;
+      size_bytes = 1024 * 1024LLU;
       num_ints = size_bytes / sizeof(size_t);
       data = (size_t*) priv->create(nullptr, "v0", size_bytes);
     }
@@ -51,6 +44,71 @@ class PrivateerTest : public testing::Test {
       std::filesystem::remove_all("datastore");
     }
 };
+
+TEST_F(PrivateerTest, ReadOnly) {
+  size_t start = 0;
+  size_t middle = this->num_ints / 2;
+  size_t middle_to_end = ( this->num_ints / 2 ) + ( this->num_ints / 4 );
+  size_t end = this->num_ints - 1;
+  this->data[start] = 7;
+  this->data[middle] = 8;
+  this->data[middle_to_end] = 9;
+  this->data[end] = 10;
+  std::cout << "written to: " << end << std::endl;
+  priv->msync();
+  delete priv;
+
+  priv = new Privateer(Privateer::OPEN, "datastore");
+  this->data = (size_t*) priv->open_read_only(nullptr, "v0");
+  this->data[start] = 1;
+  this->data[middle] = 2;
+  this->data[middle_to_end] = 3;
+  this->data[end] = 4;
+  priv->msync();
+  delete priv;
+
+  priv = new Privateer(Privateer::OPEN, "datastore");
+  this->data = (size_t*) priv->open_read_only(nullptr, "v0");
+  EXPECT_EQ(this->data[start], 7);
+  EXPECT_EQ(this->data[middle], 8);
+  EXPECT_EQ(this->data[middle_to_end], 9);
+  EXPECT_EQ(this->data[end], 10);
+}
+
+TEST_F(PrivateerTest, Immutable) {
+  size_t start = 0;
+  size_t middle = this->num_ints / 2;
+  size_t middle_to_end = ( this->num_ints / 2 ) + ( this->num_ints / 4 );
+  size_t end = this->num_ints - 1;
+  this->data[start] = 7;
+  this->data[middle] = 8;
+  this->data[middle_to_end] = 9;
+  this->data[end] = 10;
+  std::cout << "written to: " << end << std::endl;
+  priv->msync();
+  delete priv;
+
+  priv = new Privateer(Privateer::OPEN, "datastore");
+  this->data = (size_t*) priv->open_immutable(nullptr, "v0", "v1");
+  this->data[start] = 1;
+  this->data[middle] = 2;
+  this->data[middle_to_end] = 3;
+  this->data[end] = 4;
+  priv->msync();
+  delete priv;
+
+  priv = new Privateer(Privateer::OPEN, "datastore");
+  this->data = (size_t*) priv->open_read_only(nullptr, "v0");
+  EXPECT_EQ(this->data[start], 7);
+  EXPECT_EQ(this->data[middle], 8);
+  EXPECT_EQ(this->data[middle_to_end], 9);
+  EXPECT_EQ(this->data[end], 10);
+  this->data = (size_t*) priv->open_read_only(nullptr, "v1");
+  EXPECT_EQ(this->data[start], 1);
+  EXPECT_EQ(this->data[middle], 2);
+  EXPECT_EQ(this->data[middle_to_end], 3);
+  EXPECT_EQ(this->data[end], 4);
+}
 
 TEST_F(PrivateerTest, SimpleWrite) {
   size_t start = 0;
@@ -110,7 +168,20 @@ TEST_F(PrivateerTest, SortWrite) {
   }
 }
 
-TEST_F(PrivateerTest, SparseWrite) {
+TEST_F(PrivateerTest, IncrementalRandomSparseWrite) {
+  int num_iterations = 10;
+  int num_updates = 10;
+
+  for (int i = 0 ; i < num_iterations ; i++) {
+    std::vector<size_t> offsets = get_random_offsets(this->num_ints, num_updates);
+    for (auto offset : offsets) {
+      data[offset] += 1;
+    }
+    priv->msync();
+  }
+}
+
+TEST_F(PrivateerTest, IncrementalRandomSparseWrite_Threaded) {
   int num_iterations = 10;
   int num_updates = 10;
   omp_set_num_threads(4);
@@ -120,8 +191,6 @@ TEST_F(PrivateerTest, SparseWrite) {
     #pragma omp for
     for (offset_iterator = offsets.begin(); offset_iterator <= offsets.end(); ++offset_iterator){
       data[*offset_iterator] += 1;
-    //for (auto offset : offsets) {
-    //data[offset] += 1;
     }
     priv->msync();
   }
@@ -133,7 +202,7 @@ TEST_F(PrivateerTest, SimpleSnapshot) {
   }
   priv->msync();
   for (int j = 1; j <= 10; ++j){
-    for (size_t k = 1; k < this->num_ints; k+=2){
+    for (size_t k = 1; k < this->num_ints; k+=2) {
       this->data[k]++;
     }
     priv->snapshot(("v" + std::to_string(j)).c_str());
@@ -150,8 +219,65 @@ TEST_F(PrivateerTest, SimpleSnapshot) {
   }
 }
 
-TEST_F(PrivateerTest, IncrementalSnapshot) {
+TEST_F(PrivateerTest, IncrementalRandomSparseSnapshot) {
+  int num_iterations = 10;
+  size_t update_ratio = 10;
 
+  float initial_fill_ratio = 0.01;
+  size_t initial_fill_size = this->num_ints * initial_fill_ratio;
+  float initial_sparsity = 0.01;
+  size_t num_updates = initial_fill_size*initial_sparsity;
+
+  std::vector<size_t> random_indices_first_half = get_random_offsets(0, initial_fill_size, num_updates);
+  for (auto offset_iterator : random_indices_first_half) {
+    this->data[offset_iterator] += 1;
+  }
+
+  size_t update_size = num_ints*(update_ratio * 1.0 / 100);
+
+  for (int i = 1; i < num_iterations; i++) {
+    size_t update_start = initial_fill_size + i*update_size;
+    num_updates = update_size*initial_sparsity;
+
+    std::vector<size_t> random_indices = get_random_offsets(update_start, update_start + update_size, num_updates);
+    for (auto offset_iterator : random_indices) {
+      this->data[offset_iterator] += 1;
+    }
+
+    EXPECT_TRUE(priv->snapshot(("v" + std::to_string(i)).c_str()));
+  }
+}
+
+TEST_F(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
+  int num_iterations = 10;
+  size_t update_ratio = 10;
+
+  float initial_fill_ratio = 0.01;
+  size_t initial_fill_size = this->num_ints * initial_fill_ratio;
+  float initial_sparsity = 0.01;
+  size_t num_updates = initial_fill_size*initial_sparsity;
+
+  std::vector<size_t> random_indices_first_half = get_random_offsets(0, initial_fill_size, num_updates);
+  std::vector<size_t>::iterator offset_iterator;
+  #pragma omp parallel for
+  for (offset_iterator = random_indices_first_half.begin(); offset_iterator <= random_indices_first_half.end(); ++offset_iterator){
+      this->data[*offset_iterator] += 1;
+  }
+
+  size_t update_size = num_ints*(update_ratio * 1.0 / 100);
+
+  for (int i = 1; i < num_iterations; i++) {
+    size_t update_start = initial_fill_size + i*update_size;
+    num_updates = update_size*initial_sparsity;
+
+    std::vector<size_t> random_indices = get_random_offsets(update_start, update_start + update_size, num_updates);
+    #pragma omp parallel for
+    for (offset_iterator = random_indices.begin(); offset_iterator < random_indices.end(); ++offset_iterator){
+      this->data[*offset_iterator] += 1;
+    }
+
+    EXPECT_TRUE(priv->snapshot(("v" + std::to_string(i)).c_str()));
+  }
 }
 
 TEST(PrivateerTest_Concurrent, ConcurrentWrite) {
