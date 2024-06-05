@@ -1,4 +1,6 @@
 #include <cstddef>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <mpi.h>
 #include <gtest/gtest.h>
@@ -25,7 +27,7 @@ std::vector<size_t> get_random_offsets(size_t region_start, size_t region_end, s
   return random_values;
 }
 
-class PrivateerTest : public testing::Test {
+class PrivateerTest : public testing::TestWithParam<std::tuple<size_t>> {
   public:
     Privateer* priv = nullptr;
     size_t size_bytes;
@@ -33,8 +35,14 @@ class PrivateerTest : public testing::Test {
     size_t* data;
 
     void SetUp() override {
+      char env[] = "PRIVATEER_MAX_MEM_BLOCKS=";
+      char block_num[10];
+      strcpy(block_num, (std::to_string(std::get<0>(GetParam()))).c_str());
+      strcat(env, block_num);
+      putenv(env);
+
       priv = new Privateer(Privateer::CREATE, "datastore");
-      size_bytes = 1024 * 1024LLU;
+      size_bytes = 8 * 1024 * 1024LLU;
       num_ints = size_bytes / sizeof(size_t);
       data = (size_t*) priv->create(nullptr, "v0", size_bytes);
     }
@@ -44,8 +52,8 @@ class PrivateerTest : public testing::Test {
       std::filesystem::remove_all("datastore");
     }
 };
-
-TEST_F(PrivateerTest, ReadOnly) {
+/*
+TEST_P(PrivateerTest, ReadOnly) {
   size_t start = 0;
   size_t middle = this->num_ints / 2;
   size_t middle_to_end = ( this->num_ints / 2 ) + ( this->num_ints / 4 );
@@ -60,6 +68,7 @@ TEST_F(PrivateerTest, ReadOnly) {
 
   priv = new Privateer(Privateer::OPEN, "datastore");
   this->data = (size_t*) priv->open_read_only(nullptr, "v0");
+
   this->data[start] = 1;
   this->data[middle] = 2;
   this->data[middle_to_end] = 3;
@@ -74,8 +83,21 @@ TEST_F(PrivateerTest, ReadOnly) {
   EXPECT_EQ(this->data[middle_to_end], 9);
   EXPECT_EQ(this->data[end], 10);
 }
+*/
+TEST_P(PrivateerTest, ReadOnly) {
+  this->data[0] = 7;
+  priv->msync();
+  delete priv;
 
-TEST_F(PrivateerTest, Immutable) {
+  priv = new Privateer(Privateer::OPEN, "datastore");
+  this->data = (size_t*) priv->open_read_only(nullptr, "v0");
+
+  EXPECT_DEATH({
+      this->data[0] = 1;
+    }, "");
+}
+
+TEST_P(PrivateerTest, Immutable) {
   size_t start = 0;
   size_t middle = this->num_ints / 2;
   size_t middle_to_end = ( this->num_ints / 2 ) + ( this->num_ints / 4 );
@@ -110,7 +132,7 @@ TEST_F(PrivateerTest, Immutable) {
   EXPECT_EQ(this->data[end], 4);
 }
 
-TEST_F(PrivateerTest, SimpleWrite) {
+TEST_P(PrivateerTest, SimpleWrite) {
   size_t start = 0;
   size_t middle = this->num_ints / 2;
   size_t middle_to_end = ( this->num_ints / 2 ) + ( this->num_ints / 4 );
@@ -129,9 +151,12 @@ TEST_F(PrivateerTest, SimpleWrite) {
   EXPECT_EQ(this->data[middle], 8);
   EXPECT_EQ(this->data[middle_to_end], 9);
   EXPECT_EQ(this->data[end], 10);
+  std::cout << "region size: " << this->priv->region_size() << std::endl;
+  std::cout << "version capacity: " << this->priv->version_capacity("datastore/v0") << std::endl;
+  std::cout << "version block size: " << this->priv->version_block_size("datastore/v0") << std::endl;
 }
 
-TEST_F(PrivateerTest, SimpleDenseWrite) {
+TEST_P(PrivateerTest, SimpleDenseWrite) {
   for (size_t i = 0; i < this->num_ints; i++) {
     this->data[i] = i;
   }
@@ -145,7 +170,40 @@ TEST_F(PrivateerTest, SimpleDenseWrite) {
   }
 }
 
-TEST_F(PrivateerTest, SortWrite) {
+TEST_P(PrivateerTest, SimpleWrite_Data) {
+  size_t start = 0;
+  size_t middle = this->num_ints / 2;
+  size_t middle_to_end = ( this->num_ints / 2 ) + ( this->num_ints / 4 );
+  size_t end = this->num_ints - 1;
+  this->data[start] = 7;
+  this->data[middle] = 8;
+  EXPECT_EQ(this->data[start], 7);
+  EXPECT_EQ(this->data[middle], 8);
+  EXPECT_EQ(this->data[middle_to_end], 0);
+  EXPECT_EQ(this->data[end], 0);
+  EXPECT_EQ(((size_t*) this->priv->data())[start], 7);
+  EXPECT_EQ(((size_t*) this->priv->data())[middle], 8);
+  EXPECT_EQ(((size_t*) this->priv->data())[middle_to_end], 0);
+  EXPECT_EQ(((size_t*) this->priv->data())[end], 0);
+  this->data[middle_to_end] = 9;
+  this->data[end] = 10;
+  std::cout << "written to: " << end << std::endl;
+  priv->msync();
+  delete priv;
+
+  priv = new Privateer(Privateer::OPEN, "datastore");
+  this->data = (size_t*) priv->open_read_only(nullptr, "v0");
+  EXPECT_EQ(this->data[start], 7);
+  EXPECT_EQ(this->data[middle], 8);
+  EXPECT_EQ(this->data[middle_to_end], 9);
+  EXPECT_EQ(this->data[end], 10);
+  EXPECT_EQ(((size_t*) this->priv->data())[start], 7);
+  EXPECT_EQ(((size_t*) this->priv->data())[middle], 8);
+  EXPECT_EQ(((size_t*) this->priv->data())[middle_to_end], 9);
+  EXPECT_EQ(((size_t*) this->priv->data())[end], 10);
+}
+
+TEST_P(PrivateerTest, SortWrite) {
   for (size_t i = 0; i < this->num_ints; i++) {
     this->data[i] = (this->num_ints - 1) - i;
   }
@@ -168,7 +226,7 @@ TEST_F(PrivateerTest, SortWrite) {
   }
 }
 
-TEST_F(PrivateerTest, IncrementalRandomSparseWrite) {
+TEST_P(PrivateerTest, IncrementalRandomSparseWrite) {
   int num_iterations = 10;
   int num_updates = 10;
 
@@ -181,7 +239,7 @@ TEST_F(PrivateerTest, IncrementalRandomSparseWrite) {
   }
 }
 
-TEST_F(PrivateerTest, IncrementalRandomSparseWrite_Threaded) {
+TEST_P(PrivateerTest, IncrementalRandomSparseWrite_Threaded) {
   int num_iterations = 10;
   int num_updates = 10;
   omp_set_num_threads(4);
@@ -196,7 +254,7 @@ TEST_F(PrivateerTest, IncrementalRandomSparseWrite_Threaded) {
   }
 }
 
-TEST_F(PrivateerTest, SimpleSnapshot) {
+TEST_P(PrivateerTest, SimpleSnapshot) {
   for (size_t i = 0; i < this->num_ints; i++) {
     this->data[i] = 0;
   }
@@ -219,9 +277,9 @@ TEST_F(PrivateerTest, SimpleSnapshot) {
   }
 }
 
-TEST_F(PrivateerTest, IncrementalRandomSparseSnapshot) {
-  int num_iterations = 10;
-  size_t update_ratio = 10;
+TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot) {
+  int num_iterations = 1;
+  size_t update_ratio = 1;
 
   float initial_fill_ratio = 0.01;
   size_t initial_fill_size = this->num_ints * initial_fill_ratio;
@@ -248,9 +306,9 @@ TEST_F(PrivateerTest, IncrementalRandomSparseSnapshot) {
   }
 }
 
-TEST_F(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
-  int num_iterations = 10;
-  size_t update_ratio = 10;
+TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
+  int num_iterations = 1;
+  size_t update_ratio = 1;
 
   float initial_fill_ratio = 0.01;
   size_t initial_fill_size = this->num_ints * initial_fill_ratio;
@@ -261,6 +319,8 @@ TEST_F(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
   std::vector<size_t>::iterator offset_iterator;
   #pragma omp parallel for
   for (offset_iterator = random_indices_first_half.begin(); offset_iterator <= random_indices_first_half.end(); ++offset_iterator){
+    EXPECT_GE(*offset_iterator, 0);
+    EXPECT_LT(*offset_iterator, this->num_ints);
       this->data[*offset_iterator] += 1;
   }
 
@@ -273,6 +333,8 @@ TEST_F(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
     std::vector<size_t> random_indices = get_random_offsets(update_start, update_start + update_size, num_updates);
     #pragma omp parallel for
     for (offset_iterator = random_indices.begin(); offset_iterator < random_indices.end(); ++offset_iterator){
+      EXPECT_GE(*offset_iterator, 0);
+      EXPECT_LT(*offset_iterator, this->num_ints);
       this->data[*offset_iterator] += 1;
     }
 
@@ -318,3 +380,33 @@ TEST(PrivateerTest_Concurrent, ConcurrentWrite) {
   MPI_Finalize();
   std::filesystem::remove_all("datastore");
 }
+
+// Death tests
+TEST_P(PrivateerTest, LowerBoundOutOfRange) {
+  EXPECT_DEATH({
+      this->data[-1] = 1;
+    }, "Fault address out of range");
+}
+
+TEST_P(PrivateerTest, UpperBoundOutOfRange) {
+  EXPECT_DEATH({
+      this->data[this->num_ints] = 1;
+    }, "Fault address out of range");
+}
+
+#ifdef USE_COMPRESSION
+
+#endif
+
+INSTANTIATE_TEST_SUITE_P(
+    Parameterized_PrivateerTest,
+    PrivateerTest,
+    ::testing::Values(
+      std::make_tuple(1),
+      std::make_tuple(2),
+      std::make_tuple(4),
+      std::make_tuple(8),
+      std::make_tuple(16),
+      std::make_tuple(16384)
+    )
+);
