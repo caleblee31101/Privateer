@@ -27,7 +27,7 @@ std::vector<size_t> get_random_offsets(size_t region_start, size_t region_end, s
   return random_values;
 }
 
-class PrivateerTest : public testing::TestWithParam<std::tuple<size_t>> {
+class PrivateerTest : public testing::TestWithParam<std::tuple<size_t, size_t, size_t, size_t>> {
   public:
     Privateer* priv = nullptr;
     size_t size_bytes;
@@ -42,7 +42,7 @@ class PrivateerTest : public testing::TestWithParam<std::tuple<size_t>> {
       putenv(env);
 
       priv = new Privateer(Privateer::CREATE, "datastore");
-      size_bytes = 8 * 1024 * 1024LLU;
+      size_bytes = std::get<1>(GetParam());
       num_ints = size_bytes / sizeof(size_t);
       data = (size_t*) priv->create(nullptr, "v0", size_bytes);
     }
@@ -52,51 +52,8 @@ class PrivateerTest : public testing::TestWithParam<std::tuple<size_t>> {
       std::filesystem::remove_all("datastore");
     }
 };
-/*
-TEST_P(PrivateerTest, ReadOnly) {
-  size_t start = 0;
-  size_t middle = this->num_ints / 2;
-  size_t middle_to_end = ( this->num_ints / 2 ) + ( this->num_ints / 4 );
-  size_t end = this->num_ints - 1;
-  this->data[start] = 7;
-  this->data[middle] = 8;
-  this->data[middle_to_end] = 9;
-  this->data[end] = 10;
-  std::cout << "written to: " << end << std::endl;
-  priv->msync();
-  delete priv;
 
-  priv = new Privateer(Privateer::OPEN, "datastore");
-  this->data = (size_t*) priv->open_read_only(nullptr, "v0");
-
-  this->data[start] = 1;
-  this->data[middle] = 2;
-  this->data[middle_to_end] = 3;
-  this->data[end] = 4;
-  priv->msync();
-  delete priv;
-
-  priv = new Privateer(Privateer::OPEN, "datastore");
-  this->data = (size_t*) priv->open_read_only(nullptr, "v0");
-  EXPECT_EQ(this->data[start], 7);
-  EXPECT_EQ(this->data[middle], 8);
-  EXPECT_EQ(this->data[middle_to_end], 9);
-  EXPECT_EQ(this->data[end], 10);
-}
-*/
-TEST_P(PrivateerTest, ReadOnly) {
-  this->data[0] = 7;
-  priv->msync();
-  delete priv;
-
-  priv = new Privateer(Privateer::OPEN, "datastore");
-  this->data = (size_t*) priv->open_read_only(nullptr, "v0");
-
-  EXPECT_DEATH({
-      this->data[0] = 1;
-    }, "");
-}
-
+// TO BE REMOVED
 TEST_P(PrivateerTest, Immutable) {
   size_t start = 0;
   size_t middle = this->num_ints / 2;
@@ -227,8 +184,8 @@ TEST_P(PrivateerTest, SortWrite) {
 }
 
 TEST_P(PrivateerTest, IncrementalRandomSparseWrite) {
-  int num_iterations = 10;
-  int num_updates = 10;
+  int num_iterations = std::get<2>(GetParam());
+  int num_updates = std::get<3>(GetParam());
 
   for (int i = 0 ; i < num_iterations ; i++) {
     std::vector<size_t> offsets = get_random_offsets(this->num_ints, num_updates);
@@ -240,8 +197,8 @@ TEST_P(PrivateerTest, IncrementalRandomSparseWrite) {
 }
 
 TEST_P(PrivateerTest, IncrementalRandomSparseWrite_Threaded) {
-  int num_iterations = 10;
-  int num_updates = 10;
+  int num_iterations = std::get<2>(GetParam());
+  int num_updates = std::get<3>(GetParam());
   omp_set_num_threads(4);
   for (int i = 0 ; i < num_iterations ; i++) {
     std::vector<size_t> offsets = get_random_offsets(this->num_ints, num_updates);
@@ -255,11 +212,12 @@ TEST_P(PrivateerTest, IncrementalRandomSparseWrite_Threaded) {
 }
 
 TEST_P(PrivateerTest, SimpleSnapshot) {
+  int num_iterations = std::get<2>(GetParam());
   for (size_t i = 0; i < this->num_ints; i++) {
     this->data[i] = 0;
   }
   priv->msync();
-  for (int j = 1; j <= 10; ++j){
+  for (int j = 1; j <= num_iterations; ++j){
     for (size_t k = 1; k < this->num_ints; k+=2) {
       this->data[k]++;
     }
@@ -268,7 +226,7 @@ TEST_P(PrivateerTest, SimpleSnapshot) {
   delete priv;
 
   priv = new Privateer(Privateer::OPEN, "datastore");
-  for (int j = 1; j <= 10; ++j){
+  for (int j = 1; j <= num_iterations; ++j){
     this->data = (size_t*) priv->open_read_only(nullptr, ("v" + std::to_string(j)).c_str());
     for (size_t k = 1; k < this->num_ints; k+=2){
       EXPECT_EQ(data[k], j);
@@ -278,8 +236,8 @@ TEST_P(PrivateerTest, SimpleSnapshot) {
 }
 
 TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot) {
-  int num_iterations = 1;
-  size_t update_ratio = 1;
+  int num_iterations = std::get<2>(GetParam());
+  size_t update_ratio = std::get<3>(GetParam());
 
   float initial_fill_ratio = 0.01;
   size_t initial_fill_size = this->num_ints * initial_fill_ratio;
@@ -288,17 +246,22 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot) {
 
   std::vector<size_t> random_indices_first_half = get_random_offsets(0, initial_fill_size, num_updates);
   for (auto offset_iterator : random_indices_first_half) {
+    EXPECT_GE(offset_iterator, 0);
+    EXPECT_LT(offset_iterator, this->num_ints);
     this->data[offset_iterator] += 1;
   }
 
   size_t update_size = num_ints*(update_ratio * 1.0 / 100);
 
-  for (int i = 1; i < num_iterations; i++) {
+  for (int i = 1; i < num_iterations - 1; i++) {
+  std::cout << "iteration: " << i << std::endl;
     size_t update_start = initial_fill_size + i*update_size;
     num_updates = update_size*initial_sparsity;
 
     std::vector<size_t> random_indices = get_random_offsets(update_start, update_start + update_size, num_updates);
     for (auto offset_iterator : random_indices) {
+    EXPECT_GE(offset_iterator, 0);
+    EXPECT_LT(offset_iterator, this->num_ints);
       this->data[offset_iterator] += 1;
     }
 
@@ -307,8 +270,8 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot) {
 }
 
 TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
-  int num_iterations = 1;
-  size_t update_ratio = 1;
+  int num_iterations = std::get<2>(GetParam());
+  size_t update_ratio = std::get<3>(GetParam());
 
   float initial_fill_ratio = 0.01;
   size_t initial_fill_size = this->num_ints * initial_fill_ratio;
@@ -326,7 +289,7 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
 
   size_t update_size = num_ints*(update_ratio * 1.0 / 100);
 
-  for (int i = 1; i < num_iterations; i++) {
+  for (int i = 1; i < num_iterations - 1; i++) {
     size_t update_start = initial_fill_size + i*update_size;
     num_updates = update_size*initial_sparsity;
 
@@ -389,24 +352,61 @@ TEST_P(PrivateerTest, LowerBoundOutOfRange) {
 }
 
 TEST_P(PrivateerTest, UpperBoundOutOfRange) {
+  std::cout << "num_ints: " << this->num_ints << std::endl;
+  std::cout << "size_bytes: " << this->size_bytes << std::endl;
+  std::cout << "size_t size: " << sizeof(size_t) << std::endl;
   EXPECT_DEATH({
       this->data[this->num_ints] = 1;
     }, "Fault address out of range");
+}
+
+TEST_P(PrivateerTest, ReadOnly) {
+  this->data[0] = 7;
+  priv->msync();
+  delete priv;
+
+  priv = new Privateer(Privateer::OPEN, "datastore");
+  this->data = (size_t*) priv->open_read_only(nullptr, "v0");
+
+  EXPECT_DEATH({
+      this->data[0] = 1;
+    }, "");
 }
 
 #ifdef USE_COMPRESSION
 
 #endif
 
+/*
+** PARAMS
+** 0 - number of 2MB blocks
+** 1 - size of datastore region
+** 2 - iterations
+** 3 - update rate/ratio
+*/
+
 INSTANTIATE_TEST_SUITE_P(
     Parameterized_PrivateerTest,
     PrivateerTest,
     ::testing::Values(
-      std::make_tuple(1),
-      std::make_tuple(2),
-      std::make_tuple(4),
-      std::make_tuple(8),
-      std::make_tuple(16),
-      std::make_tuple(16384)
+      std::make_tuple(    1,               8 * 1024LLU, 10, 10),
+      std::make_tuple(    2,               8 * 1024LLU, 10, 10),
+      std::make_tuple(    4,               8 * 1024LLU, 10, 10),
+      std::make_tuple(    8,               8 * 1024LLU, 10, 10),
+      std::make_tuple(   16,               8 * 1024LLU, 10, 10),
+      std::make_tuple(16384,               8 * 1024LLU, 10, 10),
+      std::make_tuple(    1,        8 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(    2,        8 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(    4,        8 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(    8,        8 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(   16,        8 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(16384,        8 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(    1, 8 * 1024 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(    2, 8 * 1024 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(    4, 8 * 1024 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(    8, 8 * 1024 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(   16, 8 * 1024 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(16384, 8 * 1024 * 1024 * 1024LLU, 10, 10)
     )
 );
+
