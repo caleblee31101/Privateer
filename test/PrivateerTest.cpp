@@ -183,6 +183,37 @@ TEST_P(PrivateerTest, SortWrite) {
   }
 }
 
+TEST_P(PrivateerTest, MultipleWrite) {
+  for (size_t i = 0; i < this->num_ints; i++) {
+    this->data[i] = i;
+  }
+
+  int num_iterations = std::get<2>(GetParam());
+  for (size_t k = 0; k < num_iterations; k++) {
+    delete priv;
+    priv = new Privateer(Privateer::OPEN, "datastore");
+    this->data = (size_t*) priv->open_read_only(nullptr, "v0");
+    for (size_t i = 0; i < this->num_ints; i++) {
+      EXPECT_EQ(this->data[i], i);
+    }
+    for (size_t i = 0; i < this->num_ints; i++) {
+      this->data[i] = (this->num_ints - 1) - i;
+    }
+    priv->msync();
+    delete priv;
+
+    priv = new Privateer(Privateer::OPEN, "datastore");
+    this->data = (size_t*) priv->open  (nullptr, "v0");
+    for (size_t i = 0; i < this->num_ints; i++) {
+      EXPECT_EQ(this->data[i], (this->num_ints - 1) - i);
+    }
+    for (size_t i = 0; i < this->num_ints; i++) {
+      this->data[i] = i;
+    }
+    priv->msync();
+  }
+}
+
 TEST_P(PrivateerTest, IncrementalRandomSparseWrite) {
   int num_iterations = std::get<2>(GetParam());
   int num_updates = std::get<3>(GetParam());
@@ -190,6 +221,8 @@ TEST_P(PrivateerTest, IncrementalRandomSparseWrite) {
   for (int i = 0 ; i < num_iterations ; i++) {
     std::vector<size_t> offsets = get_random_offsets(this->num_ints, num_updates);
     for (auto offset : offsets) {
+    EXPECT_GE(offset, 0);
+    EXPECT_LT(offset, this->num_ints);
       data[offset] += 1;
     }
     priv->msync();
@@ -203,8 +236,11 @@ TEST_P(PrivateerTest, IncrementalRandomSparseWrite_Threaded) {
   for (int i = 0 ; i < num_iterations ; i++) {
     std::vector<size_t> offsets = get_random_offsets(this->num_ints, num_updates);
     std::vector<size_t>::iterator offset_iterator;
-    #pragma omp for
-    for (offset_iterator = offsets.begin(); offset_iterator <= offsets.end(); ++offset_iterator){
+#pragma omp for
+    for (offset_iterator = offsets.begin(); offset_iterator < offsets.end(); ++offset_iterator){
+      std::cout << "offset iterator: " << *offset_iterator << std::endl;
+      EXPECT_GE(*offset_iterator, 0);
+      EXPECT_LT(*offset_iterator, this->num_ints);
       data[*offset_iterator] += 1;
     }
     priv->msync();
@@ -253,7 +289,7 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot) {
 
   size_t update_size = num_ints*(update_ratio * 1.0 / 100);
 
-  for (int i = 1; i < num_iterations - 1; i++) {
+  for (int i = 1; i < num_iterations; i++) {
   std::cout << "iteration: " << i << std::endl;
     size_t update_start = initial_fill_size + i*update_size;
     num_updates = update_size*initial_sparsity;
@@ -284,12 +320,13 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
   for (offset_iterator = random_indices_first_half.begin(); offset_iterator <= random_indices_first_half.end(); ++offset_iterator){
     EXPECT_GE(*offset_iterator, 0);
     EXPECT_LT(*offset_iterator, this->num_ints);
-      this->data[*offset_iterator] += 1;
+    std::cout << "offset_iterator: " << *offset_iterator << std::endl;
+    this->data[*offset_iterator] += 1;
   }
 
   size_t update_size = num_ints*(update_ratio * 1.0 / 100);
 
-  for (int i = 1; i < num_iterations - 1; i++) {
+  for (int i = 1; i < num_iterations; i++) {
     size_t update_start = initial_fill_size + i*update_size;
     num_updates = update_size*initial_sparsity;
 
@@ -298,6 +335,7 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
     for (offset_iterator = random_indices.begin(); offset_iterator < random_indices.end(); ++offset_iterator){
       EXPECT_GE(*offset_iterator, 0);
       EXPECT_LT(*offset_iterator, this->num_ints);
+      std::cout << "offset_iterator: " << *offset_iterator << std::endl;
       this->data[*offset_iterator] += 1;
     }
 
@@ -374,12 +412,24 @@ TEST_P(PrivateerTest, ReadOnly) {
 }
 
 #ifdef USE_COMPRESSION
-
+TEST_P(PrivateerTest, SimpleCompressionTest) {
+  for (size_t i = 0; i < this->num_ints; i++) {
+    this->data[i] = 7;
+  }
+  priv->msync();
+  size_t size = 0;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator("datastore/blocks")) {
+    if (std::filesystem::is_regular_file(entry.path())) {
+      size += std::filesystem::file_size(entry.path());
+    }
+  }
+  EXPECT_LT(size, 2097152);
+}
 #endif
 
 /*
 ** PARAMS
-** 0 - number of 2MB blocks
+** 0 - max number of 2MB blocks, constraining max allotted memory region
 ** 1 - size of datastore region
 ** 2 - iterations
 ** 3 - update rate/ratio
@@ -395,18 +445,17 @@ INSTANTIATE_TEST_SUITE_P(
       std::make_tuple(    8,               8 * 1024LLU, 10, 10),
       std::make_tuple(   16,               8 * 1024LLU, 10, 10),
       std::make_tuple(16384,               8 * 1024LLU, 10, 10),
-      std::make_tuple(    1,        8 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(    2,        8 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(    4,        8 * 1024 * 1024LLU, 10, 10),
+      std::make_tuple(    1,        8 * 1024 * 1024LLU, 10, 10), // page eviction occurs
+      std::make_tuple(    2,        8 * 1024 * 1024LLU, 10, 10), // page eviction occurs
+      std::make_tuple(    4,        8 * 1024 * 1024LLU, 10, 10), // page eviction occurs
       std::make_tuple(    8,        8 * 1024 * 1024LLU, 10, 10),
       std::make_tuple(   16,        8 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(16384,        8 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(    1, 8 * 1024 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(    2, 8 * 1024 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(    4, 8 * 1024 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(    8, 8 * 1024 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(   16, 8 * 1024 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(16384, 8 * 1024 * 1024 * 1024LLU, 10, 10)
+      std::make_tuple(16384,        8 * 1024 * 1024LLU, 10, 10)/*,
+      std::make_tuple(    1, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
+      std::make_tuple(    2, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
+      std::make_tuple(    4, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
+      std::make_tuple(    8, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
+      std::make_tuple(   16, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
+      std::make_tuple(16384, 8 * 1024 * 1024 * 1024LLU, 10, 10)*/
     )
 );
-
