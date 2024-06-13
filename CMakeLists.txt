@@ -108,15 +108,21 @@ TARGET_LINK_LIBRARIES(privateer-static stdc++fs)
 
 # ZSTD
 # ------------------ZSTD----------------------------
-if (ZSTD_ROOT)
+option(ENABLE_ZSTD "Enable compression" OFF)
+if (ENABLE_ZSTD)
   message(STATUS "Configuring with zstd")
-  find_library(LIBZSTD NAMES zstd PATHS ${ZSTD_ROOT}/lib)
+  find_package(zstd REQUIRED)
+  target_compile_definitions(privateer-static PRIVATE USE_COMPRESSION)
+  target_link_libraries(privateer-static PRIVATE ${ZSTD_LIBRARIES})
+  target_include_directories(privateer-static PRIVATE ${ZSTD_INCLUDE_DIRS})
+
+  #find_library(LIBZSTD NAMES zstd PATHS ${ZSTD_ROOT}/lib)
   # target_include_directories(privateer PRIVATE ${ZSTD_ROOT}/lib)
   # target_link_libraries(privateer ${LIBZSTD})
   # target_compile_definitions(privateer PRIVATE USE_COMPRESSION)
-  target_include_directories(privateer-static PRIVATE ${ZSTD_ROOT}/lib)
-  target_link_libraries(privateer-static ${LIBZSTD})
-  target_compile_definitions(privateer-static PRIVATE USE_COMPRESSION)
+  #target_include_directories(privateer-static PRIVATE ${ZSTD_ROOT}/lib)
+  #target_link_libraries(privateer-static ${LIBZSTD})
+  #target_compile_definitions(privateer-static PRIVATE USE_COMPRESSION)
 endif()
 # --------------------------------------------------
 
@@ -141,5 +147,5 @@ find_package(MPI)
 
 include(CTest)
 enable_testing()
-add_subdirectory(test_apps)
+#add_subdirectory(test_apps)
 add_subdirectory(test)
