@@ -14,10 +14,11 @@ jobs:
         uses: MarkusJx/install-boost@v2.4.5
         id: install-boost
         with: boost_version: 1.84.0
+      - name: Install zstd
+        run: sudo apt install libzstd-dev
       - name: Build
         run: |
           mkdir build && cd build
-          git clone https://github.com/facebook/zstd
-          cmake -DZSTD_ROOT=zstd -DLIBZSTD=zstd/lib/zstd.h -DCMAKE_INSTALL_PREFIX=. ..
-          make install
+          cmake -DENABLE_ZSTD=ON -DCMAKE_INSTALL_PREFIX=. ..
+          make install -j8
           make test

@@ -23,3 +23,8 @@ if (MPI_CXX_FOUND)
 else()
   message(STATUS "Will skip the MPI tests")
 endif()
+
+if (ENABLE_ZSTD)
+  target_link_libraries(PrivateerTest PUBLIC zstd::zstd)
+endif()
+

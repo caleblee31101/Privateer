@@ -1,13 +1,11 @@
 
 find_path(ZSTD_INCLUDE_DIRS
   NAMES zstd.h
-  HINTS ../build_debug/zstd/lib)
-  #HINTS ${zstd_ROOT_DIR}/lib)
+  HINTS ${zstd_ROOT_DIR}/include)
 
 find_library(ZSTD_LIBRARIES
   NAMES zstd
-  HINTS ../build_debug/zstd/lib)
-  #HINTS ${zstd_ROOT_DIR}/lib)
+  HINTS ${zstd_ROOT_DIR}/lib)
 
 
 include(FindPackageHandleStandardArgs)
@@ -27,8 +25,4 @@ if(ZSTD_FOUND AND NOT (TARGET zstd::zstd))
     PROPERTIES
       IMPORTED_LOCATION ${ZSTD_LIBRARIES}
       INTERFACE_INCLUDE_DIRECTORIES ${ZSTD_INCLUDE_DIRS})
-endif()
-
-if (NOT ZSTD_FOUND)
-    message(STATUS "Zstd not found!!!")
 endif()
