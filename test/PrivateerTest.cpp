@@ -7,14 +7,7 @@
 
 #include "../include/privateer/privateer.hpp"
 #include "../test_apps/utility/random.hpp"
-/*
-  TODO:
-  - fix incremental snapshot test
-  - check r/w only permissions, create/open
-  - test simple utility functions, return values of create/open
-  - parameterize necessary values (the ones with 10)
-  - stash based constructor
-*/
+
 std::vector<size_t> get_random_offsets(size_t region_length, size_t num_updates){
   std::vector<size_t> random_values;
   std::generate_n(std::back_inserter(random_values), num_updates, utility::RandomNumberBetween(0,region_length - 1));
@@ -311,7 +304,7 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
 
   float initial_fill_ratio = 0.01;
   size_t initial_fill_size = this->num_ints * initial_fill_ratio;
-  float initial_sparsity = 0.01;
+  float initial_sparsity = 0.1;
   size_t num_updates = initial_fill_size*initial_sparsity;
 
   std::vector<size_t> random_indices_first_half = get_random_offsets(0, initial_fill_size, num_updates);
@@ -447,7 +440,7 @@ INSTANTIATE_TEST_SUITE_P(
       std::make_tuple(16384,               8 * 1024LLU, 10, 10),
       std::make_tuple(    1,        8 * 1024 * 1024LLU, 10, 10), // page eviction occurs
       std::make_tuple(    2,        8 * 1024 * 1024LLU, 10, 10), // page eviction occurs
-      std::make_tuple(    4,        8 * 1024 * 1024LLU, 10, 10), // page eviction occurs
+      std::make_tuple(    4,        8 * 1024 * 1024LLU, 10, 10),
       std::make_tuple(    8,        8 * 1024 * 1024LLU, 10, 10),
       std::make_tuple(   16,        8 * 1024 * 1024LLU, 10, 10),
       std::make_tuple(16384,        8 * 1024 * 1024LLU, 10, 10)/*,
