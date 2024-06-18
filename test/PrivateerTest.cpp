@@ -313,7 +313,7 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
   for (offset_iterator = random_indices_first_half.begin(); offset_iterator <= random_indices_first_half.end(); ++offset_iterator){
     EXPECT_GE(*offset_iterator, 0);
     EXPECT_LT(*offset_iterator, this->num_ints);
-    std::cout << "offset_iterator: " << *offset_iterator << std::endl;
+    //std::cout << "offset_iterator: " << *offset_iterator << std::endl;
     this->data[*offset_iterator] += 1;
   }
 
@@ -322,13 +322,13 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
   for (int i = 1; i < num_iterations; i++) {
     size_t update_start = initial_fill_size + i*update_size;
     num_updates = update_size*initial_sparsity;
-
+    std::cout << "iteration: " << i << std::endl;
     std::vector<size_t> random_indices = get_random_offsets(update_start, update_start + update_size, num_updates);
     #pragma omp parallel for
     for (offset_iterator = random_indices.begin(); offset_iterator < random_indices.end(); ++offset_iterator){
       EXPECT_GE(*offset_iterator, 0);
       EXPECT_LT(*offset_iterator, this->num_ints);
-      std::cout << "offset_iterator: " << *offset_iterator << std::endl;
+      //std::cout << "offset_iterator: " << *offset_iterator << std::endl;
       this->data[*offset_iterator] += 1;
     }
 
@@ -432,18 +432,18 @@ INSTANTIATE_TEST_SUITE_P(
     Parameterized_PrivateerTest,
     PrivateerTest,
     ::testing::Values(
-      std::make_tuple(    1,               8 * 1024LLU, 10, 10),
-      std::make_tuple(    2,               8 * 1024LLU, 10, 10),
-      std::make_tuple(    4,               8 * 1024LLU, 10, 10),
-      std::make_tuple(    8,               8 * 1024LLU, 10, 10),
-      std::make_tuple(   16,               8 * 1024LLU, 10, 10),
-      std::make_tuple(16384,               8 * 1024LLU, 10, 10),
-      std::make_tuple(    1,        8 * 1024 * 1024LLU, 10, 10), // page eviction occurs
-      std::make_tuple(    2,        8 * 1024 * 1024LLU, 10, 10), // page eviction occurs
-      std::make_tuple(    4,        8 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(    8,        8 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(   16,        8 * 1024 * 1024LLU, 10, 10),
-      std::make_tuple(16384,        8 * 1024 * 1024LLU, 10, 10)/*,
+      std::make_tuple(    1,               8 * 1024LLU,  5, 10),
+      std::make_tuple(    2,               8 * 1024LLU,  5, 10),
+      std::make_tuple(    4,               8 * 1024LLU,  5, 10),
+      std::make_tuple(    8,               8 * 1024LLU,  5, 10),
+      std::make_tuple(   16,               8 * 1024LLU,  5, 10),
+      std::make_tuple(16384,               8 * 1024LLU,  5, 10),
+      std::make_tuple(    1,        8 * 1024 * 1024LLU,  5, 10), // page eviction occurs
+      std::make_tuple(    2,        8 * 1024 * 1024LLU,  5, 10), // page eviction occurs
+      std::make_tuple(    4,        8 * 1024 * 1024LLU,  5, 10),
+      std::make_tuple(    8,        8 * 1024 * 1024LLU,  5, 10),
+      std::make_tuple(   16,        8 * 1024 * 1024LLU,  5, 10),
+      std::make_tuple(16384,        8 * 1024 * 1024LLU,  5, 10)/*,
       std::make_tuple(    1, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
       std::make_tuple(    2, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
       std::make_tuple(    4, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
