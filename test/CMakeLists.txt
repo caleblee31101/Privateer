@@ -26,5 +26,5 @@ endif()
 
 if (ENABLE_ZSTD)
   target_link_libraries(PrivateerTest PUBLIC zstd::zstd)
+  target_compile_definitions(PrivateerTest PRIVATE USE_COMPRESSION)
 endif()
-

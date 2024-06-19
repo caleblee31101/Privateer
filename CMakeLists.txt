@@ -113,9 +113,9 @@ if (ENABLE_ZSTD)
   message(STATUS "Configuring with zstd")
   list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
   find_package(zstd REQUIRED)
-  include_directories(${ZSTD_INCLUDE_DIRS})
+  target_include_directories(privateer-static PRIVATE ${ZSTD_INCLUDE_DIRS})
   TARGET_LINK_LIBRARIES(privateer-static zstd::zstd)
-  add_definitions(-DUSE_COMPRESSION)
+  target_compile_definitions(privateer-static PRIVATE USE_COMPRESSION)
 endif()
 # --------------------------------------------------
 
