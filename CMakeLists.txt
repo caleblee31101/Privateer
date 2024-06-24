@@ -140,5 +140,5 @@ find_package(MPI)
 
 include(CTest)
 enable_testing()
-#add_subdirectory(test_apps)
+add_subdirectory(test_apps)
 add_subdirectory(test)

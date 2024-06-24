@@ -20,7 +20,7 @@ std::vector<size_t> get_random_offsets(size_t region_start, size_t region_end, s
   return random_values;
 }
 
-class PrivateerTest : public testing::TestWithParam<std::tuple<size_t, size_t, size_t, size_t>> {
+class PrivateerTest : public testing::TestWithParam<std::tuple<size_t, size_t, size_t, size_t, size_t, size_t, size_t>> {
   public:
     Privateer* priv = nullptr;
     size_t size_bytes;
@@ -207,6 +207,81 @@ TEST_P(PrivateerTest, MultipleWrite) {
   }
 }
 
+TEST_P(PrivateerTest, MultipleWrite_Threaded) {
+  omp_set_num_threads(std::get<4>(GetParam()));
+#pragma omp for
+  for (size_t i = 0; i < this->num_ints; i++) {
+    this->data[i] = i;
+  }
+
+  int num_iterations = std::get<2>(GetParam());
+  for (size_t k = 0; k < num_iterations; k++) {
+    delete priv;
+    priv = new Privateer(Privateer::OPEN, "datastore");
+    this->data = (size_t*) priv->open_read_only(nullptr, "v0");
+#pragma omp for
+    for (size_t i = 0; i < this->num_ints; i++) {
+      EXPECT_EQ(this->data[i], i);
+    }
+#pragma omp for
+    for (size_t i = 0; i < this->num_ints; i++) {
+      this->data[i] = (this->num_ints - 1) - i;
+    }
+    priv->msync();
+    delete priv;
+
+    priv = new Privateer(Privateer::OPEN, "datastore");
+    this->data = (size_t*) priv->open  (nullptr, "v0");
+#pragma omp for
+    for (size_t i = 0; i < this->num_ints; i++) {
+      EXPECT_EQ(this->data[i], (this->num_ints - 1) - i);
+    }
+#pragma omp for
+    for (size_t i = 0; i < this->num_ints; i++) {
+      this->data[i] = i;
+    }
+    priv->msync();
+  }
+}
+
+TEST_P(PrivateerTest, MultipleWriteSparse_Threaded) {
+  size_t num_threads = std::get<4>(GetParam());
+  omp_set_num_threads(num_threads);
+#pragma omp for
+  for (size_t i = 0; i < this->num_ints; i++) {
+    this->data[i] = i / num_threads + (i % num_threads) * (this->num_ints / num_threads);
+  }
+
+  int num_iterations = std::get<2>(GetParam());
+  for (size_t k = 0; k < num_iterations; k++) {
+    delete priv;
+    priv = new Privateer(Privateer::OPEN, "datastore");
+    this->data = (size_t*) priv->open_read_only(nullptr, "v0");
+#pragma omp for
+    for (size_t i = 0; i < this->num_ints; i++) {
+      EXPECT_EQ(this->data[i], i / num_threads + (i % num_threads) * (this->num_ints / num_threads));
+    }
+#pragma omp for
+    for (size_t i = 0; i < this->num_ints; i++) {
+      this->data[i] = ((this->num_ints - 1) - i) / num_threads + (((this->num_ints - 1) - i) % num_threads) * (this->num_ints / num_threads);
+    }
+    priv->msync();
+    delete priv;
+
+    priv = new Privateer(Privateer::OPEN, "datastore");
+    this->data = (size_t*) priv->open  (nullptr, "v0");
+#pragma omp for
+    for (size_t i = 0; i < this->num_ints; i++) {
+      EXPECT_EQ(this->data[i], ((this->num_ints - 1) - i) / num_threads + (((this->num_ints - 1) - i) % num_threads) * (this->num_ints / num_threads));
+    }
+#pragma omp for
+    for (size_t i = 0; i < this->num_ints; i++) {
+      this->data[i] = i / num_threads + (i % num_threads) * (this->num_ints / num_threads);;
+    }
+    priv->msync();
+  }
+}
+
 TEST_P(PrivateerTest, IncrementalRandomSparseWrite) {
   int num_iterations = std::get<2>(GetParam());
   int num_updates = std::get<3>(GetParam());
@@ -225,7 +300,7 @@ TEST_P(PrivateerTest, IncrementalRandomSparseWrite) {
 TEST_P(PrivateerTest, IncrementalRandomSparseWrite_Threaded) {
   int num_iterations = std::get<2>(GetParam());
   int num_updates = std::get<3>(GetParam());
-  omp_set_num_threads(4);
+  omp_set_num_threads(std::get<4>(GetParam()));
   for (int i = 0 ; i < num_iterations ; i++) {
     std::vector<size_t> offsets = get_random_offsets(this->num_ints, num_updates);
     std::vector<size_t>::iterator offset_iterator;
@@ -279,6 +354,7 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot) {
     EXPECT_LT(offset_iterator, this->num_ints);
     this->data[offset_iterator] += 1;
   }
+  this->priv->msync();
 
   size_t update_size = num_ints*(update_ratio * 1.0 / 100);
 
@@ -301,6 +377,7 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot) {
 TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
   int num_iterations = std::get<2>(GetParam());
   size_t update_ratio = std::get<3>(GetParam());
+  omp_set_num_threads(std::get<4>(GetParam()));
 
   float initial_fill_ratio = 0.01;
   size_t initial_fill_size = this->num_ints * initial_fill_ratio;
@@ -316,6 +393,7 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
     //std::cout << "offset_iterator: " << *offset_iterator << std::endl;
     this->data[*offset_iterator] += 1;
   }
+  this->priv->msync();
 
   size_t update_size = num_ints*(update_ratio * 1.0 / 100);
 
@@ -332,6 +410,49 @@ TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Threaded) {
       this->data[*offset_iterator] += 1;
     }
 
+    EXPECT_TRUE(priv->snapshot(("v" + std::to_string(i)).c_str()));
+  }
+}
+
+TEST_P(PrivateerTest, IncrementalRandomSparseSnapshot_Skewed_Threaded) {
+  int num_iterations = std::get<2>(GetParam());
+  size_t update_ratio = std::get<3>(GetParam());
+  omp_set_num_threads(std::get<4>(GetParam()));
+  int dense_region_size_ratio = std::get<5>(GetParam());
+  int dense_region_update_ratio = std::get<6>(GetParam());
+
+  size_t total_updates_per_iteration = num_ints * (update_ratio*1.0/100);
+  size_t dense_region_length = num_ints * (dense_region_size_ratio*1.0/100);
+  size_t num_updates_dense_region = total_updates_per_iteration * (dense_region_update_ratio*1.0/100);
+  size_t sparse_region_start = dense_region_length;
+  size_t num_updates_sparse_region = total_updates_per_iteration - num_updates_dense_region;
+
+  #pragma omp parallel for
+  for (size_t i = 0; i < num_ints / 2; ++i){
+    data[i] = 0;
+  }
+  this->priv->msync();
+
+  size_t update_size = num_ints*(update_ratio * 1.0 / 100);
+
+  for (int i = 1; i < num_iterations; i++) {
+    // update dense region
+    std::vector<size_t> random_indices = get_random_offsets(0, dense_region_length, num_updates_dense_region);
+    std::vector<size_t>::iterator offset_iterator;
+    #pragma omp parallel for
+    for (offset_iterator = random_indices.begin(); offset_iterator < random_indices.end(); ++offset_iterator){
+      data[*offset_iterator] += 1;
+    }
+
+    // update sparse region
+    std::vector<size_t> random_indices_sparse_region = get_random_offsets(sparse_region_start, num_ints, num_updates_sparse_region);
+    std::vector<size_t>::iterator offset_iterator_sparse_region;
+    #pragma omp parallel for
+    for (offset_iterator_sparse_region = random_indices_sparse_region.begin(); offset_iterator_sparse_region <= random_indices_sparse_region.end(); offset_iterator_sparse_region++){
+      data[*offset_iterator_sparse_region] += 1;
+    }
+
+    // snapshot
     EXPECT_TRUE(priv->snapshot(("v" + std::to_string(i)).c_str()));
   }
 }
@@ -426,25 +547,32 @@ TEST_P(PrivateerTest, SimpleCompressionTest) {
 ** 1 - size of datastore region
 ** 2 - iterations
 ** 3 - update rate/ratio
+** 4 - number of threads
+** 5 - dense region size ratio
+** 6 - dense update size ratio
 */
 
 INSTANTIATE_TEST_SUITE_P(
     Parameterized_PrivateerTest,
     PrivateerTest,
     ::testing::Values(
-      std::make_tuple(    1,               8 * 1024LLU,  5, 10),
-      std::make_tuple(    2,               8 * 1024LLU,  5, 10),
-      std::make_tuple(    4,               8 * 1024LLU,  5, 10),
-      std::make_tuple(    8,               8 * 1024LLU,  5, 10),
-      std::make_tuple(   16,               8 * 1024LLU,  5, 10),
-      std::make_tuple(16384,               8 * 1024LLU,  5, 10),
-      std::make_tuple(    1,        8 * 1024 * 1024LLU,  5, 10), // page eviction occurs
-      std::make_tuple(    2,        8 * 1024 * 1024LLU,  5, 10), // page eviction occurs
-      std::make_tuple(    4,        8 * 1024 * 1024LLU,  5, 10),
-      std::make_tuple(    8,        8 * 1024 * 1024LLU,  5, 10),
-      std::make_tuple(   16,        8 * 1024 * 1024LLU,  5, 10),
-      std::make_tuple(16384,        8 * 1024 * 1024LLU,  5, 10)/*,
-      std::make_tuple(    1, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
+      std::make_tuple(    1,               8 * 1024LLU,  5, 10, 6, 10, 10),
+      std::make_tuple(    2,               8 * 1024LLU,  5, 10, 6, 10, 10),
+      std::make_tuple(    4,               8 * 1024LLU,  5, 10, 6, 10, 10),
+      std::make_tuple(    8,               8 * 1024LLU,  5, 10, 6, 10, 10),
+      std::make_tuple(   16,               8 * 1024LLU,  5, 10, 6, 10, 10),
+      std::make_tuple(16384,               8 * 1024LLU,  5, 10, 6, 10, 10),
+      std::make_tuple(    1,        8 * 1024 * 1024LLU,  5, 10, 4, 10, 10), // page eviction occurs
+      std::make_tuple(    2,        8 * 1024 * 1024LLU,  5, 10, 4, 10, 10), // page eviction occurs
+      std::make_tuple(    1,        8 * 1024 * 1024LLU,  5, 10, 6, 10, 10), // page eviction occurs
+      std::make_tuple(    2,        8 * 1024 * 1024LLU,  5, 10, 6, 10, 10), // page eviction occurs
+      std::make_tuple(    1,        8 * 1024 * 1024LLU,  5, 10, 8, 10, 10), // page eviction occurs
+      std::make_tuple(    2,        8 * 1024 * 1024LLU,  5, 10, 8, 10, 10), // page eviction occurs
+      std::make_tuple(    4,        8 * 1024 * 1024LLU,  5, 10, 6, 10, 10),
+      std::make_tuple(    8,        8 * 1024 * 1024LLU,  5, 10, 6, 10, 10),
+      std::make_tuple(   16,        8 * 1024 * 1024LLU,  5, 10, 6, 10, 10),
+      std::make_tuple(16384,        8 * 1024 * 1024LLU,  5, 10, 6, 10, 10)/*,
+      std::make_tuple(    1, 8 * 1024 * 1024 * 1024LLU,  2, 10, 6, 10, 10), // page eviction occurs
       std::make_tuple(    2, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
       std::make_tuple(    4, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
       std::make_tuple(    8, 8 * 1024 * 1024 * 1024LLU, 10, 10), // page eviction occurs
