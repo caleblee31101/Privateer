@@ -28,6 +28,9 @@
 #ifdef USE_COMPRESSION
 #include "utility/compression.hpp"
 #endif
+#ifdef ENABLE_LOGGING
+#include "spdlog/spdlog.h"
+#endif
 
 class block_storage
 {

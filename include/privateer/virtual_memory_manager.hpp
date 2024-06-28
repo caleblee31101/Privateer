@@ -28,6 +28,9 @@
 #ifdef USE_COMPRESSION
 #include "utility/compression.hpp"
 #endif
+#ifdef ENABLE_LOGGING
+#include "spdlog/spdlog.h"
+#endif
 
 class virtual_memory_manager {
   public:
@@ -206,6 +209,9 @@ class virtual_memory_manager {
 
     void msync(){
       // 1) Write dirty_lru
+#ifdef ENABLE_LOGGING
+        spdlog::info("Msync Write Dirty LRU");
+#endif
       std::vector<uint64_t> dirty_lru_vector(dirty_lru.begin(), dirty_lru.end());
       #pragma omp parallel for
       for (auto dirty_lru_iterator = dirty_lru_vector.begin(); dirty_lru_iterator != dirty_lru_vector.end(); ++dirty_lru_iterator){
@@ -236,6 +242,9 @@ class virtual_memory_manager {
       dirty_lru.clear();
       
       // 2) Commit stashed blocks
+#ifdef ENABLE_LOGGING
+        spdlog::info("Msync Commit Stashed Blocks");
+#endif
       std::vector<uint64_t> stash_vector(stash_set.begin(), stash_set.end());
       #pragma omp parallel for
       for (auto stash_iterator = stash_vector.begin(); stash_iterator != stash_vector.end(); ++stash_iterator){
@@ -585,10 +594,14 @@ class virtual_memory_manager {
     void evict_if_needed(){
       void* to_evict;
       if ((present_blocks.size()*m_block_size) >= m_max_mem_size){
-        // std::cout << "EVICTING" << std::endl;
+#ifdef ENABLE_LOGGING
+        spdlog::info("Evicting");
+#endif
         if (clean_lru.size() > 0){
           to_evict = (void*) clean_lru.back();
-          // std::cout << "Evicting clean block: " << ((uint64_t) to_evict - (uint64_t) m_region_start_address) / m_block_size << std::endl;
+#ifdef ENABLE_LOGGING
+          spdlog::info("Evicting clean block: {}", ((uint64_t) to_evict - (uint64_t) m_region_start_address) / m_block_size);
+#endif
           clean_lru.pop_back();
         }
         else{
@@ -597,7 +610,9 @@ class virtual_memory_manager {
           dirty_lru.pop_back();
           // std::cout << "Hello from the other side" << std::endl;
           uint64_t block_index = ((uint64_t) to_evict - (uint64_t) m_region_start_address) / m_block_size;
-          // std::cout << "stashing block: " << block_index << std::endl;
+#ifdef ENABLE_LOGGING
+          spdlog::info("Stashing block: {}", block_index);
+#endif
           if (!m_block_storage->stash_block(to_evict, block_index)){
             std::cerr << "Virtual memory manager: Error stashing block with index: " << block_index << std::endl;
             exit(-1);

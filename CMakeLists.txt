@@ -119,6 +119,16 @@ if (ENABLE_ZSTD)
 endif()
 # --------------------------------------------------
 
+# SPDLOG
+# ------------------SPDLOG----------------------------
+option(ENABLE_SPDLOG "Enable logging" OFF)
+if (ENABLE_SPDLOG)
+  message(STATUS "Configuring with spdlog")
+  find_package(spdlog CONFIG REQUIRED)
+  TARGET_LINK_LIBRARIES(privateer-static spdlog::spdlog)
+  target_compile_definitions(privateer-static PRIVATE ENABLE_LOGGING)
+endif()
+# --------------------------------------------------
 
 # iostreams
 # TARGET_LINK_LIBRARIES(privateer boost_iostreams)
